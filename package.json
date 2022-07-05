@@ -16,6 +16,7 @@
     "dist:win": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --x64",
     "dist:linux": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --linux",
     "dist-codesign": "npm run build && electron-builder --mac --win --x64 --publish never",
+    "dist:mac-codesign": "npm run build && electron-builder --mac --win --x64 --publish never",
     "pack": "npm run dist --dir -c.compression=store -c.mac.identity=null",
     "lint": "eslint ./src/**/*.ts ./src/**/*.tsx --fix",
     "upgrade:whistle": "git subtree pull --prefix=vendor/whistle https://github.com/avwo/whistle master --squash && npm run install-deps && npm run update:node_modules",
