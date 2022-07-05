@@ -2,6 +2,7 @@
 
 * [关于whistle](README.md)
 * [安装启动](install.md)
+* [代理与证书](proxy.md)
 * [命令行参数](options.md)
 * [命令行操作](cli.md)
 * [手动更新](update.md)

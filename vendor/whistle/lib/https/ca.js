@@ -263,18 +263,19 @@ function parseAllCustomCerts() {
         }
         dnsName.push(item.value);
         certsInfo[item.value] = extend(
-          { filename: filename, mtime: mtime, domain: item.value },
+          { filename: filename, type: cert.type, mtime: mtime, domain: item.value },
           validity
         );
       }
     });
     if (dnsName.length) {
       certFiles[filename] = extend(
-        { mtime: mtime, dir: cert.dir, dnsName: dnsName.join(', ') },
+        { mtime: mtime, type: cert.type, dir: cert.dir, dnsName: dnsName.join(', ') },
         validity
       );
     }
   });
+  certFiles.root = certFiles.root || customCertsFiles.root;
   customPairs = pairs;
   customCertsInfo = certsInfo;
   customCertsFiles = certFiles;
@@ -289,23 +290,26 @@ function loadCustomCerts(certDir, isCustom) {
   var certs = {};
   try {
     fs.readdirSync(certDir).forEach(function (name) {
-      if (!/^(.+)\.(crt|key)$/.test(name)) {
+      if (!/^(.+)\.(crt|cer|pem|key)$/.test(name)) {
         return;
       }
       var filename = RegExp.$1;
-      var suffix = RegExp.$2;
+      var type = RegExp.$2;
       var cert = (certs[filename] = certs[filename] || {});
-      if (suffix === 'crt') {
-        suffix = 'cert';
-      }
+      var isCert = type !== 'key';
       try {
         var filePath = path.join(certDir, name);
-        cert.dir = certDir;
-        cert[suffix] = fs.readFileSync(filePath, { encoding: 'utf8' });
         var mtime = fs.statSync(filePath).mtime.getTime();
-        if (cert.mtime == null || cert.mtime < mtime) {
-          cert.mtime = mtime;
+        if (isCert && cert.type && (cert.mtime == null || cert.mtime >= mtime)) {
+          return;
         }
+        cert.dir = certDir;
+        if (isCert) {
+          cert.mtime = mtime;
+          cert.type = type;
+          type = 'cert';
+        }
+        cert[type] = fs.readFileSync(filePath, { encoding: 'utf8' });
       } catch (e) {}
     });
   } catch (e) {}
@@ -314,7 +318,7 @@ function loadCustomCerts(certDir, isCustom) {
   if (rootCA && rootCA.key && rootCA.cert && !customRoot) {
     customRoot = rootCA;
     ROOT_KEY_FILE = path.join(certDir, 'root.key');
-    ROOT_CRT_FILE = path.join(certDir, 'root.crt');
+    ROOT_CRT_FILE = path.join(certDir, 'root.' + rootCA.type);
   }
   Object.keys(certs).filter(function (key) {
     var cert = certs[key];
@@ -363,6 +367,7 @@ function createRootCA() {
         {
           mtime: customRoot.mtime,
           dir: customRoot.dir,
+          type: customRoot.type,
           dnsName: ''
         },
         ROOT_CRT.validity
@@ -403,34 +408,35 @@ function getRandom() {
   return '' + random;
 }
 
-function createCACert() {
+function createCACert(opts) {
+  opts = opts || {};
   var keys = pki.rsa.generateKeyPair(requiredVersion ? 2048 : 1024);
   var cert = createCert(keys.publicKey);
   var now = Date.now() + getRandom();
   var attrs = [
     {
       name: 'commonName',
-      value: 'whistle.' + now
+      value: opts.commonname || opts.commonName || 'whistle.' + now
     },
     {
       name: 'countryName',
-      value: 'CN'
+      value: opts.countryname || opts.countryName || 'CN'
     },
     {
       shortName: 'ST',
-      value: 'ZJ'
+      value: opts.st || opts.ST || 'ZJ'
     },
     {
       name: 'localityName',
-      value: 'HZ'
+      value: opts.localityname || opts.localityName || 'HZ'
     },
     {
       name: 'organizationName',
-      value: now + '.wproxy.org'
+      value: opts.organizationname || opts.organizationName || now + '.wproxy.org'
     },
     {
       shortName: 'OU',
-      value: 'wproxy.org'
+      value: opts.ou || opts.OU || 'wproxy.org'
     }
   ];
 
@@ -476,6 +482,13 @@ function createCACert() {
     cert: cert
   };
 }
+
+exports.createRootCA = function(opts) {
+  var cert = createCACert(opts);
+  cert.key = pki.privateKeyToPem(cert.key).toString();
+  cert.cert = pki.certificateToPem(cert.cert).toString();
+  return cert;
+};
 
 function createCert(publicKey, serialNumber, isShortPeriod) {
   var cert = pki.createCertificate();
@@ -673,14 +686,14 @@ function writeFile(filename, ctn, callback) {
   });
 }
 // 异步重试，出错重试即可
-function removeCertFile(filename) {
+function removeCertFile(filename, type) {
   removeFile(path.join(CUSTOM_CERTS_DIR, filename + '.key'));
-  removeFile(path.join(CUSTOM_CERTS_DIR, filename + '.crt'));
+  removeFile(path.join(CUSTOM_CERTS_DIR, filename + type));
 }
 // 异步写入，出错重试即可
-function writeCertFile(filename, cert, mtime) {
+function writeCertFile(filename, type, cert, mtime) {
   var keyFile = path.join(CUSTOM_CERTS_DIR, filename + '.key');
-  var certFile = path.join(CUSTOM_CERTS_DIR, filename + '.crt');
+  var certFile = path.join(CUSTOM_CERTS_DIR, filename + '.' + (type || 'crt'));
   writeFile(keyFile, cert.key, function () {
     fs.utimes && fs.utimes(keyFile, mtime, mtime, util.noop);
   });
@@ -695,12 +708,21 @@ function checkFilename(name) {
   return name && !ILLEGAL_PATH_RE.test(name) && name !== 'root';
 }
 
-exports.removeCert = function (filename) {
+function getCertType(type) {
+  if (type !== 'cer' && type !== 'pem') {
+    return 'crt';
+  }
+  return type;
+}
+
+exports.removeCert = function (opts) {
   if (!CUSTOM_CERTS_DIR) {
     return;
   }
+  var filename = opts.filename;
+  var type = getCertType(opts.type);
   if (checkFilename(filename) && allCustomCerts[filename]) {
-    removeCertFile(filename);
+    removeCertFile(filename, type);
     delete allCustomCerts[filename];
     parseAllCustomCerts();
   }
@@ -721,13 +743,15 @@ exports.uploadCerts = function (certs) {
     if (!cert) {
       return;
     }
-    var keyStr, certStr;
+    var keyStr, certStr, type;
     if (Array.isArray(cert)) {
       keyStr = cert[0];
       certStr = cert[1];
+      type = getCertType(cert[2]);
     } else {
       keyStr = cert.key;
       certStr = cert.cert;
+      type = getCertType(cert.type);
     }
     if (util.isString(keyStr) && util.isString(certStr)) {
       var mtime = now + index * 1000;
@@ -735,11 +759,12 @@ exports.uploadCerts = function (certs) {
       try {
         cert = parseCert({
           key: keyStr,
+          type: type,
           cert: certStr,
           mtime: mtime
         });
         if (cert) {
-          writeCertFile(filename, cert.cert, new Date(mtime));
+          writeCertFile(filename, type, cert.cert, new Date(mtime));
           allCustomCerts[filename] = cert;
           hasChanged = true;
         }

@@ -36,12 +36,12 @@ var contextMenuList = [
   {
     name: 'Open',
     list: [
-      { name: 'Overview' },
-      { name: 'Inspectors' },
-      { name: 'Composer' },
-      { name: 'Timeline' },
       { name: 'New Tab' },
       { name: 'QR Code' },
+      { name: 'Overview' },
+      { name: 'Inspectors' },
+      { name: 'Timeline' },
+      { name: 'Composer' },
       { name: 'Preview' },
       { name: 'Source' },
       { name: 'Tree View', action: 'toggleView' }
@@ -98,6 +98,7 @@ var contextMenuList = [
     list: [
       { name: 'Abort' },
       { name: 'Replay' },
+      { name: 'Replay Times', action: 'replayTimes' },
       { name: 'Compose' },
       { name: 'Mark' },
       { name: 'Unmark' }
@@ -175,7 +176,8 @@ function getClassName(data) {
     ' w-req-data-item' +
     (data.isHttps ? ' w-tunnel' : '') +
     (hasRules(data) ? ' w-has-rules' : '') +
-    (data.selected ? ' w-selected' : '')
+    (data.selected ? ' w-selected' : '') +
+    (data.isPR ? ' w-pr' : '')
   );
 }
 
@@ -193,10 +195,12 @@ function hasRules(data) {
   if (!rules) {
     return false;
   }
-  var keys = Object.keys(data.rules);
+  var keys = Object.keys(rules);
   if (keys && keys.length) {
     for (var i = 0, len = keys.length; i < len; i++) {
-      if (rules[keys[i]] && !NOT_BOLD_RULES[keys[i]]) {
+      var rule = rules[keys[i]];
+      var enable = rule && rule.list && rule.list.length === 1 && rule.list[0].matcher;
+      if (rule && !NOT_BOLD_RULES[keys[i]] && enable !== 'enable://capture' &&  enable !== 'enable://intercept') {
         return true;
       }
     }
@@ -534,11 +538,7 @@ var ReqData = React.createClass({
     self.content = ReactDOM.findDOMNode(self.refs.content);
     self.$content = $(self.content)
       .on('dblclick', 'tr', function (e) {
-        if (e.shiftKey) {
-          events.trigger('toggleDetailTab');
-        } else {
-          events.trigger('toggleInspectors');
-        }
+        events.trigger('toggleDetailTab');
       })
       .on('click', 'tr', function (e) {
         var id = this.getAttribute('data-id');
@@ -819,6 +819,9 @@ var ReqData = React.createClass({
     case 'Replay':
       events.trigger('replaySessions', [item, e.shiftKey]);
       break;
+    case 'replayTimes':
+      events.trigger('replaySessions', [item, true]);
+      break;
     case 'Export':
       if (self.treeTarget && !self.isTreeLeafNode) {
         events.trigger('exportSessions', [
@@ -1073,34 +1076,38 @@ var ReqData = React.createClass({
     contextMenuList[5].disabled = disabled;
     var list5 = contextMenuList[5].list;
     if (item) {
-      list5[2].disabled = false;
+      list5[3].disabled = false;
       if (item.selected) {
-        list5[3].disabled = true;
         list5[4].disabled = true;
+        list5[5].disabled = true;
         selectedList.forEach(function (selectedItem) {
           if (selectedItem.mark) {
-            list5[4].disabled = false;
+            list5[5].disabled = false;
           } else {
-            list5[3].disabled = false;
+            list5[4].disabled = false;
           }
         });
       } else {
         var unmark = !item.mark;
-        list5[3].disabled = !unmark;
-        list5[4].disabled = unmark;
+        list5[4].disabled = !unmark;
+        list5[5].disabled = unmark;
       }
       if (item.selected) {
-        list5[1].disabled = !selectedList.length;
+        var len = selectedList.length;
         list5[0].disabled = !selectedList.filter(util.canAbort).length;
+        list5[1].disabled = !len;
+        list5[2].disabled = !len || len > 1;
       } else {
-        list5[1].disabled = false;
         list5[0].disabled = !util.canAbort(item);
+        list5[1].disabled = false;
+        list5[2].disabled = false;
       }
     } else {
       list5[0].disabled = true;
       list5[1].disabled = true;
       list5[2].disabled = true;
       list5[3].disabled = true;
+      list5[4].disabled = true;
     }
     var treeItem = contextMenuList[6];
     var treeList = treeItem.list;
