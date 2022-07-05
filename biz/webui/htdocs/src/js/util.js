@@ -22,6 +22,7 @@ var DIG_RE = /^[+-]?[1-9]\d*$/;
 var INDEX_RE = /^\[(\d+)\]$/;
 var ARR_FILED_RE = /(.)?(?:\[(\d+)\])$/;
 var LEVELS = ['fatal', 'error', 'warn', 'info', 'debug'];
+var MAX_CURL_BODY = 1024 * 72;
 var useCustomEditor = window.location.search.indexOf('useCustomEditor') !== -1;
 var isJSONText;
 
@@ -405,6 +406,19 @@ exports.getHost = getHost;
 exports.getProtocol = function getProtocol(url) {
   var index = url.indexOf('://');
   return index == -1 ? 'TUNNEL' : url.substring(0, index).toUpperCase();
+};
+
+
+exports.getTransProto = function(req) {
+  var headers = req.headers;
+  var proto = headers && headers['x-whistle-transport-protocol'];
+  if (!proto || typeof proto !== 'string' || proto.length > 33) {
+    return;
+  }
+  try {
+    return decodeURIComponent(proto).toUpperCase();
+  } catch (e) {}
+  return proto.toUpperCase();
 };
 
 exports.ensureVisible = function (elem, container, init) {
@@ -978,8 +992,8 @@ exports.asCURL = function (item) {
       JSON.stringify((rawHeaderNames[key] || key) + ': ' + headers[key])
     );
   });
-  var body = isText(req.headers) || isUrlEncoded(req) ? getBody(req, true) : '';
-  if (body) {
+  var body = getBody(req, true);
+  if (body && (body.length <= MAX_CURL_BODY || isText(req.headers) || isUrlEncoded(req))) {
     result.push('-d', JSON.stringify(body));
   }
   return result.join(' ');
@@ -2204,6 +2218,8 @@ exports.toHar = function (item) {
     whistleRules: item.rules,
     whistleFwdHost: item.fwdHost,
     whistleSniPlugin: item.sniPlugin,
+    whistleVersion: item.version,
+    whistleNodeVersion: item.nodeVersion,
     whistleTimes: {
       startTime: item.startTime,
       dnsTime: item.dnsTime,
@@ -2280,4 +2296,8 @@ exports.collapse = collapse;
 var PROTO_RE = /^((?:http|ws)s?:\/\/)[^/?]*/;
 exports.getRawUrl = function (item) {
   return item.fwdHost && item.url.replace(PROTO_RE, '$1' + item.fwdHost);
+};
+
+exports.isGroup = function(name) {
+  return name && name[0] === '\r';
 };

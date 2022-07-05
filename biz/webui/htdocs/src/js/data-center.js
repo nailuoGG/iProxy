@@ -45,6 +45,7 @@ var disabledAllPlugins;
 var reqTabList = [];
 var resTabList = [];
 var tabList = [];
+var toolTabList = [];
 var comTabList = [];
 var DEFAULT_CONF = {
   timeout: TIMEOUT,
@@ -582,6 +583,10 @@ exports.getTabs = function () {
   return tabList;
 };
 
+exports.getToolTabs = function() {
+  return toolTabList;
+};
+
 exports.getComTabs = function () {
   return comTabList;
 };
@@ -815,25 +820,23 @@ function startLoadData() {
       var _resTabList = resTabList;
       var _tabList = tabList;
       var _comTabList = comTabList;
+      var _toolTabList = toolTabList;
       var curTabList = [];
       if (!disabledAllPlugins) {
         Object.keys(pluginsMap).forEach(function (name) {
           var pluginName = name.slice(0, -1);
           if (!disabledPlugins[pluginName]) {
             var plugin = pluginsMap[name];
-            var reqTab = plugin.reqTab;
-            var resTab = plugin.resTab;
-            var tab = plugin.tab;
-            var comTab = plugin.comTab;
             curTabList.push({
               mtime: plugin.mtime,
               priority: plugin.priority,
               _key: name,
               plugin: pluginName,
-              reqTab: reqTab,
-              resTab: resTab,
-              tab: tab,
-              comTab: comTab
+              reqTab: plugin.reqTab,
+              resTab: plugin.resTab,
+              tab: plugin.tab,
+              comTab: plugin.comTab,
+              toolTab: plugin.toolTab
             });
           }
         });
@@ -843,10 +846,12 @@ function startLoadData() {
       resTabList = [];
       tabList = [];
       comTabList = [];
+      toolTabList = [];
       curTabList.forEach(function (info) {
         var reqTab = info.reqTab;
         var resTab = info.resTab;
         var tab = info.tab;
+        var toolTab = info.toolTab;
         var comTab = info.comTab;
         var plugin = info.plugin;
         if (reqTab) {
@@ -865,11 +870,16 @@ function startLoadData() {
           comTab.plugin = plugin;
           comTabList.push(comTab);
         }
+        if (toolTab) {
+          toolTab.plugin = plugin;
+          toolTabList.push(toolTab);
+        }
       });
       emitCustomTabsChange(reqTabList, _reqTabList, 'reqTabsChange');
       emitCustomTabsChange(resTabList, _resTabList, 'resTabsChange');
       emitCustomTabsChange(tabList, _tabList, 'tabsChange');
       emitCustomTabsChange(comTabList, _comTabList, 'comTabsChange');
+      emitCustomTabsChange(toolTabList, _toolTabList, 'toolTabsChange');
       disabledPlugins = data.disabledPlugins || {};
       disabledAllPlugins = data.disabledAllPlugins;
       if (len || svrLen) {
@@ -1131,7 +1141,7 @@ function setReqData(item) {
   item.body = reqSize + ' + ' + resSize;
   var result = res.statusCode == null ? defaultValue : res.statusCode;
   item.result = (/^[1-9]/.test(result) && parseInt(result, 10)) || result;
-  item.type = (resHeaders['content-type'] || defaultValue)
+  item.type = (resHeaders['content-type'] || '')
     .split(';')[0]
     .toLowerCase();
   item.dns =
@@ -1167,11 +1177,12 @@ function setReqData(item) {
     item.rules.pipe = item.pipe;
   }
   if (!item.path) {
-    item.protocol = item.isHttps
-      ? 'HTTP'
-      : item.useH2
-      ? 'H2'
-      : util.getProtocol(url);
+    if (item.isHttps) {
+      item.protocol =  util.getTransProto(res) || util.getTransProto(req) || 'HTTP';
+    } else {
+      item.protocol =item.useH2
+        ? 'H2' : util.getProtocol(url);
+    }
     item.hostname = item.isHttps ? 'Tunnel to' : util.getHost(url);
     var pathIndex = url.indexOf('://');
     if (pathIndex !== -1) {
